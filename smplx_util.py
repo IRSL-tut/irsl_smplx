@@ -1,9 +1,10 @@
 import torch
 import smplx
 from smplx.joint_names import JOINT_NAMES
-
+# scipy
 from scipy.spatial.transform import Rotation as R
-
+# irsl
+import irsl_choreonoid.make_shapes as mkshapes
 #
 # source venv/bin/activate
 # exec(open('/choreonoid_ws/install/share/irsl_choreonoid/sample/irsl_import.py').read())
@@ -34,8 +35,9 @@ def genModels():
     m_male_mean = genModel(gender='male', flat_hand_mean=False)
     m_female_flat = genModel(gender='female', flat_hand_mean=True)
     m_female_mean = genModel(gender='female', flat_hand_mean=False)
+    return m_neutral_flat, m_neutral_mean, m_male_flat, m_male_mean, m_female_flat, m_female_mean
 
-def genInitialJoints(model):
+def genInitialJoints(model, device=_device_):
     batch_size = 1
     betas      = torch.zeros([batch_size, 10], device=device)    # 体型パラメータ
     body_pose  = torch.zeros([batch_size, 21, 3], device=device) # 身体の関節回転 (軸角表現)
@@ -53,32 +55,47 @@ def genInitialJoints(model):
     )
     return output.joints.detach().cpu().numpy().squeeze()
 
-def genDefaultParameters(batch_size=1):
-    global betas, expression, b_pose, g_rotation, g_translation, right_hand, left_hand
-    betas      = torch.zeros([batch_size, 10], device=device)    # 体型パラメータ
-    expression = torch.randn([batch_size, 10], device=device)    # 表情
+def genDefaultParameters(batch_size=1, device=_device_, returnMap=True):
+    global _betas, _expression, _b_pose, _g_rotation, _g_translation, _right_hand, _left_hand
+    _betas      = torch.zeros([batch_size, 10], device=device)    # 体型パラメータ
+    _expression = torch.randn([batch_size, 10], device=device)    # 表情
     ##
-    b_pose        = torch.zeros([batch_size, 21, 3], device=device) # 身体の関節回転 (軸角表現)
-    g_rotation    = torch.zeros([batch_size, 3], device=device) # 全体の向き
-    g_translation = torch.zeros([batch_size, 3], device=device) # 平行移動量
+    _b_pose        = torch.zeros([batch_size, 21, 3], device=device) # 身体の関節回転 (軸角表現)
+    _g_rotation    = torch.zeros([batch_size, 3], device=device) # 全体の向き
+    _g_translation = torch.zeros([batch_size, 3], device=device) # 平行移動量
     #
-    right_hand_pose = torch.zeros([batch_size, 15, 3], device=device) # 
-    left_hand_pose  = torch.zeros([batch_size, 15, 3], device=device) # 
+    _right_hand_pose = torch.zeros([batch_size, 15, 3], device=device) # 
+    _left_hand_pose  = torch.zeros([batch_size, 15, 3], device=device) #
+    if returnMap:
+        return {'betas': _betas,
+                'expression': _expression,
+                'body_pose': _b_pose,
+                'global_orient': _g_rotation,
+                'transl': _g_translation,
+                'right_hand_pose': _right_hand_pose,
+                'left_hand_pose': _left_hand_pose
+                }
+    return _betas, _expression, _b_pose, _g_rotation, _g_translation, _right_hand_pose, _left_hand_pose
 
-def getOutput(model, return_full_pose=True, return_verts=True):
-    output = model(
-        betas=betas,
-        expression=expression,
-        #
-        body_pose=body_pose,
-        global_orient=g_rotation,
-        transl=g_translation,
-        #
-        right_hand_pose=right_hand_pose,
-        left_hand_pose=left_hand_pose,
-        return_full_pose=return_full_pose, # full_pose
-        return_verts=return_verts,  # 頂点座標を計算するために True にする
-    )
+def getOutput(model, params=None, return_full_pose=True, return_verts=True):
+    if params is None:
+        output = model(
+            betas=_betas,
+            expression=_expression,
+            #
+            body_pose=_b_pose,
+            global_orient=_g_rotation,
+            transl=_g_translation,
+            #
+            right_hand_pose=_right_hand_pose,
+            left_hand_pose=_left_hand_pose,
+            return_full_pose=return_full_pose, # full_pose
+            return_verts=return_verts,  # 頂点座標を計算するために True にする
+        )
+    else:
+        output = model(return_full_pose=return_full_pose, # full_pose
+                       return_verts=return_verts,  # 頂点座標を計算するために True にする
+                       **params)
     return output
 
 def makeBodyShape(model, output, **kwargs):
